@@ -1,4 +1,4 @@
-![Logo](image.png)
+![Logo](image1.png)
 
 # Filament Media
 
@@ -101,11 +101,15 @@ Use this together with a multi-file collection in `registerCollections()`. Singl
 
 In list/table views, use Filament’s `ImageColumn` and resolve URLs from your model with [waad/media](https://github.com/waadmawlood/media)’s `getCollectionUrls()` (provided by `HasMedia`). Pass the same collection name you use in `registerCollections()` and in `MediaUpload::make(...)`.
 
+![ImageColumn](image2.png)
+
 ```php
 use Filament\Tables\Columns\ImageColumn;
 
 ImageColumn::make('banner')
-    ->getStateUsing(fn (Post $record) => $record->getCollectionUrls('banner')),
+    ->getStateUsing(fn ($record) => $record->getCollectionUrls('banner')),
+ImageColumn::make('gallery')
+    ->getStateUsing(fn ($record) => $record->getCollectionUrls('gallery')),
 ```
 
 - For a **single-file** collection (`'single' => true`), `getCollectionUrls` typically returns one URL string (or an empty value when there is no file).
