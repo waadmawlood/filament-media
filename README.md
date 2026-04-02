@@ -69,6 +69,7 @@ public static function form(Form $form): Form
             // This will automatically act as a multiple file upload because 'single' is false in registerCollections
             MediaUpload::make('gallery') // name collection
                 ->collection('gallery')  // name collection
+                ->reorderable()          // supports reordering of multiple files
                 ->image()
                 ->maxSize(2048),
             
@@ -79,6 +80,21 @@ public static function form(Form $form): Form
 ```
 
 The component automatically handles fetching current file URLs for previews and syncing modifications (adding and deleting) directly supplied by `waad/media`.
+
+## Reordering multiple files (`index`)
+
+For collections with `'single' => false`, you can enable drag-and-drop reordering with Filament’s `reorderable()` (same as `FileUpload`). Order is stored in waad/media’s **`index`** column on the `media` table.
+
+- **Loading the form:** existing files are listed sorted by `index`, then by id, so the UI matches the saved order.
+- **Saving the form:** when only existing media are present (no new uploads in that save), the component writes the current list order back to the database as `index` values (`1`, `2`, `3`, …) for that collection.
+
+```php
+MediaUpload::make('gallery')
+    ->reorderable()
+    ->image(),
+```
+
+Use this together with a multi-file collection in `registerCollections()`. Single-file collections ignore ordering.
 
 ## Preview images in tables
 

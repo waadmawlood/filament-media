@@ -130,8 +130,18 @@ class MediaUpload extends FileUpload
             $id = $mediaItems->uuid ?? $mediaItems->id;
             $this->state([$id]);
         } elseif ($mediaItems instanceof Collection) {
-            // Multiple media returns a Collection
-            $state = $mediaItems->map(function ($media) {
+            // Multiple media: order matches `index` (Filament reorderable / gallery order)
+            $ordered = $mediaItems->sort(function ($a, $b): int {
+                $indexCmp = ((int) ($a->index ?? 0)) <=> ((int) ($b->index ?? 0));
+
+                if ($indexCmp !== 0) {
+                    return $indexCmp;
+                }
+
+                return ((string) ($a->getKey() ?? '')) <=> ((string) ($b->getKey() ?? ''));
+            })->values();
+
+            $state = $ordered->map(function ($media) {
                 return $media->uuid ?? $media->id;
             })->toArray();
             $this->state($state);
@@ -213,7 +223,36 @@ class MediaUpload extends FileUpload
             return;
         }
 
-        $this->state(array_map(fn ($id) => (string) $id, $existingMediaIdsToKeep));
+        $orderedIds = array_map(fn ($id) => (string) $id, $existingMediaIdsToKeep);
+        $this->persistMediaOrderToIndexColumn($record, $collection, $orderedIds);
+        $this->state($orderedIds);
+    }
+
+    /**
+     * Persist gallery order to waad/media `index` when the field state is an ordered list of existing media IDs.
+     */
+    protected function persistMediaOrderToIndexColumn(Model $record, string $collection, array $orderedIds): void
+    {
+        if (count($orderedIds) <= 1) {
+            return;
+        }
+
+        foreach (array_values($orderedIds) as $position => $rawId) {
+            if (TemporaryUploadedFile::canUnserialize($rawId)) {
+                continue;
+            }
+
+            $id = is_numeric($rawId) ? (int) $rawId : $rawId;
+
+            $media = $record->media()
+                ->where('collection', $collection)
+                ->whereKey($id)
+                ->first();
+
+            if ($media) {
+                $media->update(['index' => $position + 1]);
+            }
+        }
     }
 
     /**
