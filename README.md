@@ -6,7 +6,7 @@ This package provides a seamless integration between [Filament](https://filament
 
 ## Requirements
 
-- PHP: `^8.2`
+- PHP: `^8.1`
 - Filament: `^3.0 || ^4.0 || ^5.0`
 - [waad/media](https://github.com/waadmawlood/media): `^4.1`
 
