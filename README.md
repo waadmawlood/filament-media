@@ -96,6 +96,16 @@ ImageColumn::make('banner')
 
 Adjust the column name (`banner` here) to match your collection key.
 
+## Pruning old media
+
+[waad/media](https://github.com/waadmawlood/media) registers the `media:prune` Artisan command. It removes media files and database rows according to the retention setting `prune_media_after_day` in your published `config/media.php` (see the waad/media docs for details).
+
+Run it manually or on a schedule (for example Laravel’s scheduler in `routes/console.php`):
+
+```bash
+php artisan media:prune
+```
+
 ## Testing
 
 This package uses Pest for testing. To run tests:
