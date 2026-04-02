@@ -2,12 +2,13 @@
 
 # Filament Media
 
-This package provides a seamless integration between [Filament](https://filamentphp.com) v3/v4/v5 and the [waad/media](https://github.com/waadmawlood/media) manager package. It's Alternative to `spatie/laravel-medialibrary` It introduces a `MediaUpload` form component that dynamically builds itself based on your Eloquent Model's `registerCollections()` method.
+This package integrates [Filament](https://filamentphp.com) v3/v4/v5 with the [waad/media](https://github.com/waadmawlood/media) manager. It is an alternative to `spatie/laravel-medialibrary` for projects on waad/media. The `MediaUpload` form component aligns with your Eloquent model’s `registerCollections()` (single vs multiple, disks, labels).
 
 ## Requirements
 
 - PHP: `^8.1`
-- Filament: `^3.0 || ^4.0 || ^5.0`
+- Filament: `^3.0|^4.0|^5.0`
+- Livewire: `^3.5|^4.0`
 - [waad/media](https://github.com/waadmawlood/media): `^4.1`
 
 ## Installation
@@ -54,7 +55,9 @@ class Post extends Model
 }
 ```
 
-Now, in your Filament Resource or Form, simply use `MediaUpload::make('collection_name')`:
+`MediaUpload::make('name')` uses the field **name** as the waad/media **collection** by default. Call `->collection(...)` only when the Filament field name should differ from the collection key (string), or when the collection must be resolved at runtime (`Closure`); pass `null` to rely on evaluation falling back to the field name.
+
+Now, in your Filament resource or form:
 
 ```php
 use Waad\FilamentMedia\Forms\Components\MediaUpload;
@@ -63,23 +66,21 @@ public static function form(Form $form): Form
 {
     return $form
         ->schema([
-            // This will automatically act as a single file upload because 'single' is true in registerCollections
-            MediaUpload::make('avatar') // name collection,
+            // Single file when registerCollections has 'single' => true for this key
+            MediaUpload::make('avatar'),
 
-            // This will automatically act as a multiple file upload because 'single' is false in registerCollections
-            MediaUpload::make('gallery') // name collection
-                ->collection('gallery')  // name collection
-                ->reorderable()          // supports reordering of multiple files
+            // Multiple files when 'single' => false; reorderable uses waad/media `index`
+            MediaUpload::make('gallery')
+                ->reorderable()
                 ->image()
                 ->maxSize(2048),
-            
-            // It Select Multiple Files or Single File Automatically Based on `single` property in `registerCollections`
-            // Can Use Other Methods of Filament `FileUpload` Component!
+
+            // Single vs multiple follows `registerCollections`; other FileUpload APIs apply as usual
         ]);
 }
 ```
 
-The component automatically handles fetching current file URLs for previews and syncing modifications (adding and deleting) directly supplied by `waad/media`.
+The component loads existing media IDs for previews, syncs new uploads via `syncMedia`, removes files with `deleteMedia`, and persists reorder when only existing items change.
 
 ## Reordering multiple files (`index`)
 
