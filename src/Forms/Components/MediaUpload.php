@@ -167,6 +167,12 @@ class MediaUpload extends FileUpload
                 ->setIsWithDettachedSync(false)
                 ->collection($collection)
                 ->upload();
+
+            // Persisted IDs live in the DB now; $existingMediaIdsToKeep does not include new uploads.
+            // Re-sync state from the record so the field is not empty until the next full page load.
+            $this->hydrateMediaState();
+
+            return;
         }
 
         $this->state(array_map(fn ($id) => (string) $id, $existingMediaIdsToKeep));
