@@ -7,6 +7,7 @@ use Filament\Forms\Components\FileUpload;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Waad\Media\Media;
 
 class MediaUpload extends FileUpload
 {
@@ -86,10 +87,26 @@ class MediaUpload extends FileUpload
             $record = $component->getRecord();
 
             if ($record && method_exists($record, 'deleteMedia')) {
-                if (! str_contains($file, 'livewire-file:')) {
-                    $record->deleteMedia($file)->delete();
+                if (TemporaryUploadedFile::canUnserialize($file)) {
+                    return;
                 }
+
+                $record->deleteMedia($file)->delete();
             }
+        });
+
+        // CreateRecord has no persisted model during beforeStateDehydrated (saveUploadedFiles).
+        // Filament calls saveRelationships() after the record is created — sync runs there.
+        $this->saveRelationshipsUsing(function (): void {
+            if (! $this->usesWaadMediaSync()) {
+                return;
+            }
+
+            if (! $this->getRecord()?->exists) {
+                return;
+            }
+
+            $this->syncWaadMediaToRecord();
         });
     }
 
@@ -114,8 +131,18 @@ class MediaUpload extends FileUpload
             $id = $mediaItems->uuid ?? $mediaItems->id;
             $this->state([$id]);
         } elseif ($mediaItems instanceof Collection) {
-            // Multiple media returns a Collection
-            $state = $mediaItems->map(function ($media) {
+            // Multiple media: order matches `index` (Filament reorderable / gallery order)
+            $ordered = $mediaItems->sort(function ($a, $b): int {
+                $indexCmp = ((int) ($a->index ?? 0)) <=> ((int) ($b->index ?? 0));
+
+                if ($indexCmp !== 0) {
+                    return $indexCmp;
+                }
+
+                return ((string) ($a->getKey() ?? '')) <=> ((string) ($b->getKey() ?? ''));
+            })->values();
+
+            $state = $ordered->map(function ($media) {
                 return $media->uuid ?? $media->id;
             })->toArray();
             $this->state($state);
@@ -125,17 +152,44 @@ class MediaUpload extends FileUpload
     }
 
     /**
-     * Override saveUploadedFiles to use waad/media syncMedia
-     * Deletion only happens on save (not on cancel)
+     * Defer waad/media handling: {@see CreateRecord} runs this hook before the Eloquent model exists.
+     * Actual sync runs from {@see saveRelationshipsUsing} once the record is persisted (create + edit).
      */
     public function saveUploadedFiles(): void
+    {
+        if (! $this->usesWaadMediaSync()) {
+            parent::saveUploadedFiles();
+
+            return;
+        }
+
+        // Keep TemporaryUploadedFile / livewire-file:* in Livewire state until saveRelationships().
+        // Calling parent would store to the default disk and bypass waad/media.
+    }
+
+    /**
+     * Detect waad/media via the bound model class (works when getRecord() is still null on create).
+     */
+    protected function usesWaadMediaSync(): bool
+    {
+        $class = $this->getModel();
+
+        if (! is_string($class) || ! class_exists($class)) {
+            return false;
+        }
+
+        return method_exists(app($class), 'syncMedia');
+    }
+
+    /**
+     * Sync pending uploads to waad/media and refresh the field state from the database.
+     */
+    protected function syncWaadMediaToRecord(): void
     {
         $record = $this->getRecord();
         $collection = $this->getCollection();
 
         if (! $record || ! method_exists($record, 'syncMedia')) {
-            parent::saveUploadedFiles();
-
             return;
         }
 
@@ -145,25 +199,147 @@ class MediaUpload extends FileUpload
         $filesToUpload = [];
         $existingMediaIdsToKeep = [];
 
-        foreach ($state as $key => $file) {
-            if ($file instanceof TemporaryUploadedFile) {
-                $filesToUpload[] = $file;
+        foreach ($state as $file) {
+            $pendingUploads = $this->resolvePendingUploadsFromState($file);
+
+            if ($pendingUploads !== []) {
+                foreach ($pendingUploads as $upload) {
+                    $filesToUpload[] = $upload;
+                }
             } else {
                 $existingMediaIdsToKeep[] = $file;
             }
         }
 
-        // Upload new files only
         if (! empty($filesToUpload)) {
             $files = count($filesToUpload) === 1 ? $filesToUpload[0] : $filesToUpload;
 
-            $record->syncMedia($files, [])
+            $uploadResult = $record->syncMedia($files, [])
                 ->setIsWithDettachedSync(false)
                 ->collection($collection)
                 ->upload();
+
+            $orderedIds = $this->mergeUploadedMediaIntoStateOrder($state, $uploadResult);
+
+            if ($orderedIds === []) {
+                $this->hydrateMediaState();
+
+                return;
+            }
+
+            $this->persistMediaOrderToIndexColumn($record, $collection, $orderedIds);
+            $this->state($orderedIds);
+
+            return;
         }
 
-        $this->state(array_map(fn ($id) => (string) $id, $existingMediaIdsToKeep));
+        $orderedIds = array_map(fn ($id) => (string) $id, $existingMediaIdsToKeep);
+        $this->persistMediaOrderToIndexColumn($record, $collection, $orderedIds);
+        $this->state($orderedIds);
+    }
+
+    /**
+     * Replace pending uploads in the original field state with new media ids (same order as waad/media returns).
+     * Required because each {@see syncMedia} batch starts indexing at 1 and can duplicate `index` with existing rows.
+     *
+     * @param  array<int, mixed>  $state
+     * @return array<int, string>
+     */
+    protected function mergeUploadedMediaIntoStateOrder(array $state, Media|Collection|null $uploadResult): array
+    {
+        $uploadedList = $this->normalizeUploadResultToOrderedList($uploadResult);
+        $u = 0;
+        $out = [];
+
+        foreach (array_values($state) as $file) {
+            $pendingUploads = $this->resolvePendingUploadsFromState($file);
+
+            if ($pendingUploads !== []) {
+                foreach ($pendingUploads as $_) {
+                    if (! isset($uploadedList[$u])) {
+                        return [];
+                    }
+
+                    $out[] = (string) $uploadedList[$u]->id;
+                    $u++;
+                }
+            } else {
+                $out[] = (string) $file;
+            }
+        }
+
+        return $u === count($uploadedList) ? $out : [];
+    }
+
+    /**
+     * @return list<Media>
+     */
+    protected function normalizeUploadResultToOrderedList(Media|Collection|null $uploadResult): array
+    {
+        if ($uploadResult === null) {
+            return [];
+        }
+
+        if ($uploadResult instanceof Media) {
+            return [$uploadResult];
+        }
+
+        return $uploadResult->values()->filter()->all();
+    }
+
+    /**
+     * Persist gallery order to waad/media `index` when the field state is an ordered list of existing media IDs.
+     */
+    protected function persistMediaOrderToIndexColumn(Model $record, string $collection, array $orderedIds): void
+    {
+        if (count($orderedIds) <= 1) {
+            return;
+        }
+
+        foreach (array_values($orderedIds) as $position => $rawId) {
+            if (TemporaryUploadedFile::canUnserialize($rawId)) {
+                continue;
+            }
+
+            $id = is_numeric($rawId) ? (int) $rawId : $rawId;
+
+            $media = $record->media()
+                ->where('collection', $collection)
+                ->whereKey($id)
+                ->first();
+
+            if ($media) {
+                $media->update(['index' => $position + 1]);
+            }
+        }
+    }
+
+    /**
+     * @return array<int, TemporaryUploadedFile>
+     */
+    protected function resolvePendingUploadsFromState(mixed $file): array
+    {
+        if ($file instanceof TemporaryUploadedFile) {
+            return [$file];
+        }
+
+        if (TemporaryUploadedFile::canUnserialize($file)) {
+            $resolved = TemporaryUploadedFile::unserializeFromLivewireRequest($file);
+
+            if ($resolved instanceof TemporaryUploadedFile) {
+                return [$resolved];
+            }
+
+            if (is_array($resolved)) {
+                return collect($resolved)
+                    ->flatten()
+                    ->filter(fn (mixed $item): bool => $item instanceof TemporaryUploadedFile)
+                    ->values()
+                    ->all();
+            }
+        }
+
+        return [];
     }
 
     public static function make(?string $name = null): static
