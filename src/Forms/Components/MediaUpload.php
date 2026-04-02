@@ -86,9 +86,11 @@ class MediaUpload extends FileUpload
             $record = $component->getRecord();
 
             if ($record && method_exists($record, 'deleteMedia')) {
-                if (! str_contains($file, 'livewire-file:')) {
-                    $record->deleteMedia($file)->delete();
+                if (TemporaryUploadedFile::canUnserialize($file)) {
+                    return;
                 }
+
+                $record->deleteMedia($file)->delete();
             }
         });
     }
@@ -145,9 +147,13 @@ class MediaUpload extends FileUpload
         $filesToUpload = [];
         $existingMediaIdsToKeep = [];
 
-        foreach ($state as $key => $file) {
-            if ($file instanceof TemporaryUploadedFile) {
-                $filesToUpload[] = $file;
+        foreach ($state as $file) {
+            $pendingUploads = $this->resolvePendingUploadsFromState($file);
+
+            if ($pendingUploads !== []) {
+                foreach ($pendingUploads as $upload) {
+                    $filesToUpload[] = $upload;
+                }
             } else {
                 $existingMediaIdsToKeep[] = $file;
             }
@@ -164,6 +170,34 @@ class MediaUpload extends FileUpload
         }
 
         $this->state(array_map(fn ($id) => (string) $id, $existingMediaIdsToKeep));
+    }
+
+    /**
+     * @return array<int, TemporaryUploadedFile>
+     */
+    protected function resolvePendingUploadsFromState(mixed $file): array
+    {
+        if ($file instanceof TemporaryUploadedFile) {
+            return [$file];
+        }
+
+        if (TemporaryUploadedFile::canUnserialize($file)) {
+            $resolved = TemporaryUploadedFile::unserializeFromLivewireRequest($file);
+
+            if ($resolved instanceof TemporaryUploadedFile) {
+                return [$resolved];
+            }
+
+            if (is_array($resolved)) {
+                return collect($resolved)
+                    ->flatten()
+                    ->filter(fn (mixed $item): bool => $item instanceof TemporaryUploadedFile)
+                    ->values()
+                    ->all();
+            }
+        }
+
+        return [];
     }
 
     public static function make(?string $name = null): static

@@ -80,6 +80,22 @@ public static function form(Form $form): Form
 
 The component automatically handles fetching current file URLs for previews and syncing modifications (adding and deleting) directly supplied by `waad/media`.
 
+## Preview images in tables
+
+In list/table views, use Filament’s `ImageColumn` and resolve URLs from your model with [waad/media](https://github.com/waadmawlood/media)’s `getCollectionUrls()` (provided by `HasMedia`). Pass the same collection name you use in `registerCollections()` and in `MediaUpload::make(...)`.
+
+```php
+use Filament\Tables\Columns\ImageColumn;
+
+ImageColumn::make('banner')
+    ->getStateUsing(fn (Post $record) => $record->getCollectionUrls('banner')),
+```
+
+- For a **single-file** collection (`'single' => true`), `getCollectionUrls` typically returns one URL string (or an empty value when there is no file).
+- For a **multi-file** collection, it returns an array of URLs; `ImageColumn` can show them as a stacked preview when the state is an array.
+
+Adjust the column name (`banner` here) to match your collection key.
+
 ## Testing
 
 This package uses Pest for testing. To run tests:
