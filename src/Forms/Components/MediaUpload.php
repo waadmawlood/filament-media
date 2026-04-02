@@ -93,6 +93,20 @@ class MediaUpload extends FileUpload
                 $record->deleteMedia($file)->delete();
             }
         });
+
+        // CreateRecord has no persisted model during beforeStateDehydrated (saveUploadedFiles).
+        // Filament calls saveRelationships() after the record is created — sync runs there.
+        $this->saveRelationshipsUsing(function (): void {
+            if (! $this->usesWaadMediaSync()) {
+                return;
+            }
+
+            if (! $this->getRecord()?->exists) {
+                return;
+            }
+
+            $this->syncWaadMediaToRecord();
+        });
     }
 
     /**
@@ -127,17 +141,44 @@ class MediaUpload extends FileUpload
     }
 
     /**
-     * Override saveUploadedFiles to use waad/media syncMedia
-     * Deletion only happens on save (not on cancel)
+     * Defer waad/media handling: {@see CreateRecord} runs this hook before the Eloquent model exists.
+     * Actual sync runs from {@see saveRelationshipsUsing} once the record is persisted (create + edit).
      */
     public function saveUploadedFiles(): void
+    {
+        if (! $this->usesWaadMediaSync()) {
+            parent::saveUploadedFiles();
+
+            return;
+        }
+
+        // Keep TemporaryUploadedFile / livewire-file:* in Livewire state until saveRelationships().
+        // Calling parent would store to the default disk and bypass waad/media.
+    }
+
+    /**
+     * Detect waad/media via the bound model class (works when getRecord() is still null on create).
+     */
+    protected function usesWaadMediaSync(): bool
+    {
+        $class = $this->getModel();
+
+        if (! is_string($class) || ! class_exists($class)) {
+            return false;
+        }
+
+        return method_exists(app($class), 'syncMedia');
+    }
+
+    /**
+     * Sync pending uploads to waad/media and refresh the field state from the database.
+     */
+    protected function syncWaadMediaToRecord(): void
     {
         $record = $this->getRecord();
         $collection = $this->getCollection();
 
         if (! $record || ! method_exists($record, 'syncMedia')) {
-            parent::saveUploadedFiles();
-
             return;
         }
 
@@ -159,7 +200,6 @@ class MediaUpload extends FileUpload
             }
         }
 
-        // Upload new files only
         if (! empty($filesToUpload)) {
             $files = count($filesToUpload) === 1 ? $filesToUpload[0] : $filesToUpload;
 
@@ -168,8 +208,6 @@ class MediaUpload extends FileUpload
                 ->collection($collection)
                 ->upload();
 
-            // Persisted IDs live in the DB now; $existingMediaIdsToKeep does not include new uploads.
-            // Re-sync state from the record so the field is not empty until the next full page load.
             $this->hydrateMediaState();
 
             return;
