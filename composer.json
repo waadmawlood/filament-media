@@ -1,0 +1,68 @@
+{
+    "name": "waad/filament-media",
+    "description": "Filament integration for waad/media package for Media Upload Locally Or Cloud S3",
+    "keywords": [
+        "Waad Mawlood",
+        "Filament",
+        "plugin",
+        "plugins",
+        "filament media",
+        "filament upload",
+        "filament plugin",
+        "filament plugins",
+        "Media",
+        "laravel-media",
+        "files",
+        "media-php",
+        "upload file"
+    ],
+    "homepage": "https://github.com/waadmawlood/filament-media",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Waad Mawlood",
+            "email": "waad_mawlood@outlook.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "filament/filament": "^3.0|^4.0|^5.0",
+        "waad/media": "^4.1"
+    },
+    "require-dev": {
+        "pestphp/pest": "^3.0",
+        "orchestra/testbench": "^9.0",
+        "phpunit/phpunit": "^11.5",
+        "laravel/pint": "^1.29"
+    },
+    "autoload": {
+        "psr-4": {
+            "Waad\\FilamentMedia\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Waad\\FilamentMedia\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Waad\\FilamentMedia\\FilamentMediaServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "format": "vendor/bin/pint",
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage-text"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}
