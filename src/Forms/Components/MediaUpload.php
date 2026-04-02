@@ -7,6 +7,7 @@ use Filament\Forms\Components\FileUpload;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Waad\Media\Media;
 
 class MediaUpload extends FileUpload
 {
@@ -213,12 +214,21 @@ class MediaUpload extends FileUpload
         if (! empty($filesToUpload)) {
             $files = count($filesToUpload) === 1 ? $filesToUpload[0] : $filesToUpload;
 
-            $record->syncMedia($files, [])
+            $uploadResult = $record->syncMedia($files, [])
                 ->setIsWithDettachedSync(false)
                 ->collection($collection)
                 ->upload();
 
-            $this->hydrateMediaState();
+            $orderedIds = $this->mergeUploadedMediaIntoStateOrder($state, $uploadResult);
+
+            if ($orderedIds === []) {
+                $this->hydrateMediaState();
+
+                return;
+            }
+
+            $this->persistMediaOrderToIndexColumn($record, $collection, $orderedIds);
+            $this->state($orderedIds);
 
             return;
         }
@@ -226,6 +236,55 @@ class MediaUpload extends FileUpload
         $orderedIds = array_map(fn ($id) => (string) $id, $existingMediaIdsToKeep);
         $this->persistMediaOrderToIndexColumn($record, $collection, $orderedIds);
         $this->state($orderedIds);
+    }
+
+    /**
+     * Replace pending uploads in the original field state with new media ids (same order as waad/media returns).
+     * Required because each {@see syncMedia} batch starts indexing at 1 and can duplicate `index` with existing rows.
+     *
+     * @param  array<int, mixed>  $state
+     * @return array<int, string>
+     */
+    protected function mergeUploadedMediaIntoStateOrder(array $state, Media|Collection|null $uploadResult): array
+    {
+        $uploadedList = $this->normalizeUploadResultToOrderedList($uploadResult);
+        $u = 0;
+        $out = [];
+
+        foreach (array_values($state) as $file) {
+            $pendingUploads = $this->resolvePendingUploadsFromState($file);
+
+            if ($pendingUploads !== []) {
+                foreach ($pendingUploads as $_) {
+                    if (! isset($uploadedList[$u])) {
+                        return [];
+                    }
+
+                    $out[] = (string) $uploadedList[$u]->id;
+                    $u++;
+                }
+            } else {
+                $out[] = (string) $file;
+            }
+        }
+
+        return $u === count($uploadedList) ? $out : [];
+    }
+
+    /**
+     * @return list<Media>
+     */
+    protected function normalizeUploadResultToOrderedList(Media|Collection|null $uploadResult): array
+    {
+        if ($uploadResult === null) {
+            return [];
+        }
+
+        if ($uploadResult instanceof Media) {
+            return [$uploadResult];
+        }
+
+        return $uploadResult->values()->filter()->all();
     }
 
     /**
