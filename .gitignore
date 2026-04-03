@@ -6,3 +6,8 @@ vendor
 coverage
 .phpunit.cache
 docs/CODEMAPS
+.claude
+.idea
+.vscode
+.cursor
+.kilo
