@@ -10,8 +10,7 @@ class FilamentMediaServiceProvider extends PackageServiceProvider
     public function configurePackage(Package $package): void
     {
         $package
-            ->name('waad-filament-media')
-            ->hasViews();
+            ->name('waad-filament-media');
     }
 
     public function boot(): void
